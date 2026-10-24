@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D&A FOOD INDUSTRIAL SUPPLY SDN BHD</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#17202a}
+header{background:#111827;color:white;padding:18px;font-size:18px;font-weight:bold}
+header small{display:block;font-size:12px;font-weight:normal;opacity:.7;margin-top:5px}
+nav{background:white;display:flex;overflow:auto;border-bottom:1px solid #ddd}
+nav button{border:0;background:white;padding:13px 15px;white-space:nowrap}
+nav button.active{color:#2563eb;border-bottom:3px solid #2563eb}
+main{padding:16px;max-width:1400px;margin:auto}
+.page{display:none}.page.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.card{background:white;border:1px solid #ddd;border-radius:10px;padding:15px}
+.num{font-size:25px;font-weight:bold;margin-top:8px}
+table{width:100%;border-collapse:collapse;background:white}
+th,td{padding:10px;border-bottom:1px solid #eee;text-align:left;font-size:13px}
+th{background:#f8fafc}
+button.primary{background:#2563eb;color:white;border:0;border-radius:7px;padding:9px 13px}
+input,select{padding:8px;border:1px solid #ccc;border-radius:6px}
+.toolbar{margin:15px 0;display:flex;gap:8px;flex-wrap:wrap}
+.good{color:#087443;font-weight:bold}.bad{color:#b42318;font-weight:bold}
+</style>
+</head>
+
+<body>
+
+<header>
+D&A FOOD INDUSTRIAL SUPPLY SDN BHD
+<small>Warehouse • Sales • Purchasing • C3 / SST Management Portal</small>
+</header>
+
+<nav id="nav"></nav>
+
+<main>
+
+<section id="Dashboard" class="page active">
+<h2>Dashboard</h2>
+<div id="dash" class="cards"></div>
+<h3>Inventory Overview</h3>
+<div id="overview"></div>
+</section>
+
+<section id="Inventory" class="page">
+<h2>Inventory</h2>
+<div class="toolbar">
+<button class="primary" onclick="addProduct()">+ Product</button>
+</div>
+<div id="inventory"></div>
+</section>
+
+<section id="Sales" class="page">
+<h2>Sales Orders</h2>
+<div class="toolbar">
+<button class="primary" onclick="newSO()">+ Sales Order</button>
+</div>
+<div id="sales"></div>
+</section>
+
+<section id="Purchasing" class="page">
+<h2>Purchase Orders</h2>
+<div class="toolbar">
+<button class="primary" onclick="newPO()">+ Purchase Order</button>
+</div>
+<div id="purchase"></div>
+</section>
+
+<section id="Receiving" class="page">
+<h2>Receiving</h2>
+<div id="receiving"></div>
+</section>
+
+<section id="Delivery" class="page">
+<h2>Delivery Order</h2>
+<div id="delivery"></div>
+</section>
+
+<section id="C3" class="page">
+<h2>C3 / SST Management</h2>
+<div id="c3dash" class="cards"></div>
+<div class="toolbar">
+<button class="primary" onclick="addC3()">+ C3 Record</button>
+<button class="primary" onclick="checkShipment()">+ Shipment C3 Check</button>
+</div>
+<div id="c3"></div>
+</section>
+
+<section id="Customers" class="page">
+<h2>Customers</h2>
+<div class="toolbar">
+<button class="primary" onclick="addCustomer()">+ Customer</button>
+</div>
+<div id="customers"></div>
+</section>
+
+<section id="Movement" class="page">
+<h2>Stock Movement</h2>
+<div id="movement"></div>
+</section>
+
+</main>
+
+<script>
+const KEY="DA_FOOD_PORTAL";
+let db=JSON.parse(localStorage.getItem(KEY)||"null")||{
+products:[
+{id:1,sku:"MSG25",name:"MSG 25KG",stock:210,reorder:150,target:300},
+{id:2,sku:"CS25",name:"Corn Starch 25KG",stock:95,reorder:100,target:200},
+{id:3,sku:"TS25",name:"Tapioca Starch 25KG",stock:160,reorder:120,target:220}],
+customers:[
+{id:1,name:"ABC Food Manufacturing",sst:"C3 Exempt"},
+{id:2,name:"XYZ Trading",sst:"SST 5%"}],
+sales:[],
+po:[],
+c3:[],
+shipments:[],
+moves:[]
+};
+
+function save(){localStorage.setItem(KEY,JSON.stringify(db));render()}
+function p(id){return db.products.find(x=>x.id==id)}
+function c(id){return db.customers.find(x=>x.id==id)}
+function reserved(id){
+return db.sales.filter(x=>x.product==id&&x.status=="Confirmed")
+.reduce((a,x)=>a+Number(x.qty),0)}
+function incoming(id){
+return db.po.filter(x=>x.product==id&&x.status=="Open")
+.reduce((a,x)=>a+Number(x.qty),0)}
+function available(x){return x.stock-reserved(x.id)}
+function projected(x){return available(x)+incoming(x.id)}
+function balance(){
+return db.c3.reduce((a,x)=>a+Number(x.approved)-Number(x.used||0),0)}
+
+const menus=[
+["Dashboard","Dashboard"],["Inventory","Inventory"],["Sales Orders","Sales"],
+["Purchase Orders","Purchasing"],["Receiving","Receiving"],
+["Delivery","Delivery"],["C3 / SST","C3"],["Customers","Customers"],
+["Stock Movement","Movement"]
+];
+
+nav.innerHTML=menus.map((x,i)=>
+`<button class="${i==0?"active":""}" onclick="page('${x[1]}',this)">${x[0]}</button>`
+).join("");
+
+function page(id,b){
+document.querySelectorAll(".page").forEach(x=>x.classList.remove("active"));
+document.getElementById(id).classList.add("active");
+document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));
+b.classList.add("active");
+render();
+}
+
+function table(head,rows){
+return `<table><tr>${head.map(x=>"<th>"+x+"</th>").join("")}</tr>${rows.join("")}</table>`
+}
+
+function render(){
+
+let total=db.products.reduce((a,x)=>a+x.stock,0);
+let res=db.products.reduce((a,x)=>a+reserved(x.id),0);
+let inc=db.products.reduce((a,x)=>a+incoming(x.id),0);
+let low=db.products.filter(x=>projected(x)<x.reorder).length;
+
+dash.innerHTML=[
+["Physical Stock",total+" MT"],
+["SO Reserved",res+" MT"],
+["Available",total-res+" MT"],
+["Incoming PO",inc+" MT"],
+["Low Stock",low],
+["C3 Balance",balance()+" MT"]
+].map(x=>`<div class="card">${x[0]}<div class="num">${x[1]}</div></div>`).join("");
+
+let rows=db.products.map(x=>`<tr>
+<td>${x.sku}</td><td>${x.name}</td><td>${x.stock}</td>
+<td>${reserved(x.id)}</td><td>${available(x)}</td>
+<td>${incoming(x.id)}</td><td>${projected(x)}</td>
+<td>${x.reorder}</td>
+<td class="${projected(x)<x.reorder?"bad":"good"}">
+${projected(x)<x.reorder?"REORDER":"OK"}</td></tr>`);
+
+overview.innerHTML=table(
+["SKU","Product","Physical","Reserved","Available","Incoming","Projected","Reorder","Status"],rows);
+inventory.innerHTML=overview.innerHTML;
+
+sales.innerHTML=table(
+["SO","Customer","Product","Qty","Status","Action"],
+db.sales.map(x=>`<tr><td>${x.id}</td><td>${c(x.customer)?.name}</td>
+<td>${p(x.product)?.name}</td><td>${x.qty} MT</td><td>${x.status}</td>
+<td>${x.status=="Confirmed"?`<button onclick="deliver(${x.id})">Deliver</button>`:""}</td></tr>`));
+
+purchase.innerHTML=table(
+["PO","Supplier","Product","Qty","Status"],
+db.po.map(x=>`<tr><td>${x.id}</td><td>${x.supplier}</td>
+<td>${p(x.product)?.name}</td><td>${x.qty} MT</td><td>${x.status}</td></tr>`));
+
+receiving.innerHTML=table(
+["PO","Supplier","Product","Qty","Action"],
+db.po.filter(x=>x.status=="Open").map(x=>`<tr><td>${x.id}</td>
+<td>${x.supplier}</td><td>${p(x.product)?.name}</td><td>${x.qty} MT</td>
+<td><button onclick="receive(${x.id})">Receive</button></td></tr>`));
+
+delivery.innerHTML=table(
+["SO","Customer","Product","Qty","Action"],
+db.sales.filter(x=>x.status=="Confirmed").map(x=>`<tr>
+<td>${x.id}</td><td>${c(x.customer)?.name}</td><td>${p(x.product)?.name}</td>
+<td>${x.qty} MT</td><td><button onclick="deliver(${x.id})">Deliver</button></td></tr>`));
+
+c3dash.innerHTML=[
+["C3 Approved",db.c3.reduce((a,x)=>a+Number(x.approved),0)+" MT"],
+["C3 Used",db.c3.reduce((a,x)=>a+Number(x.used||0),0)+" MT"],
+["C3 Balance",balance()+" MT"]
+].map(x=>`<div class="card">${x[0]}<div class="num">${x[1]}</div></div>`).join("");
+
+c3.innerHTML=table(
+["Customer","Certificate","Product","Approved","Used","Balance","Expiry"],
+db.c3.map(x=>`<tr><td>${c(x.customer)?.name}</td><td>${x.cert}</td>
+<td>${p(x.product)?.name}</td><td>${x.approved}</td><td>${x.used||0}</td>
+<td>${x.approved-(x.used||0)}</td><td>${x.expiry}</td></tr>`));
+
+customers.innerHTML=table(
+["Customer","SST Treatment"],
+db.customers.map(x=>`<tr><td>${x.name}</td><td>${x.sst}</td></tr>`));
+
+movement.innerHTML=table(
+["Time","Type","Reference","Product","Qty"],
+db.moves.slice().reverse().map(x=>`<tr><td>${x.time}</td><td>${x.type}</td>
+<td>${x.ref}</td><td>${p(x.product)?.name}</td><td>${x.qty} MT</td></tr>`));
+}
+
+function addProduct(){
+let sku=prompt("SKU");if(!sku)return;
+let name=prompt("Product name");let stock=+prompt("Physical stock MT",0);
+let reorder=+prompt("Reorder level MT",0);let target=+prompt("Target stock MT",0);
+db.products.push({id:Date.now(),sku,name,stock,reorder,target});save();
+}
+
+function newSO(){
+let customer=prompt("Customer ID: "+db.customers.map(x=>x.id+"="+x.name).join(", "));
+let product=prompt("Product ID: "+db.products.map(x=>x.id+"="+x.name).join(", "));
+let qty=+prompt("Quantity MT");
+let x=p(product);
+if(!x||qty<=0||qty>available(x)){alert("Insufficient Available Stock");return}
+db.sales.push({id:Date.now(),customer,product,qty,status:"Confirmed"});
+db.moves.push({time:new Date().toLocaleString(),type:"RESERVE",ref:"SO",product,qty});
+save();
+}
+
+function newPO(){
+let supplier=prompt("Supplier");
+let product=prompt("Product ID: "+db.products.map(x=>x.id+"="+x.name).join(", "));
+let qty=+prompt("Quantity MT");
+db.po.push({id:Date.now(),supplier,product,qty,status:"Open"});
+save();
+}
+
+function receive(id){
+let x=db.po.find(x=>x.id==id);
+p(x.product).stock+=Number(x.qty);
+x.status="Received";
+db.moves.push({time:new Date().toLocaleString(),type:"IN",ref:"PO",product:x.product,qty:x.qty});
+save();
+}
+
+function deliver(id){
+let x=db.sales.find(x=>x.id==id),pr=p(x.product);
+if(pr.stock<x.qty){alert("Physical stock insufficient");return}
+pr.stock-=Number(x.qty);x.status="Delivered";
+db.moves.push({time:new Date().toLocaleString(),type:"OUT",ref:"SO",product:x.product,qty:x.qty});
+save();
+}
+
+function addC3(){
+let customer=prompt("Customer ID");
+let cert=prompt("C3 Certificate No.");
+let product=prompt("Product ID");
+let approved=+prompt("Approved C3 quantity MT");
+let expiry=prompt("Expiry date YYYY-MM-DD");
+db.c3.push({customer,cert,product,approved,used:0,expiry});
+save();
+}
+
+function checkShipment(){
+let product=prompt("Product ID");
+let qty=+prompt("Next shipment quantity MT");
+let bal=db.c3.filter(x=>x.product==product)
+.reduce((a,x)=>a+Number(x.approved)-Number(x.used||0),0);
+let shortage=Math.max(0,qty-bal);
+db.shipments.push({product,qty,c3avail:bal,shortage});
+alert(shortage?
+"C3 INSUFFICIENT — Short "+shortage+" MT":
+"C3 OK — enough C3 available");
+save();
+}
+
+function addCustomer(){
+let name=prompt("Customer name");if(!name)return;
+let sst=confirm("Customer has valid C3 exemption?")?"C3 Exempt":"SST 5%";
+db.customers.push({id:Date.now(),name,sst});save();
+}
+
+render();
+</script>
+
+</body>
+</html>
